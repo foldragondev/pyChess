@@ -1,5 +1,4 @@
 import copy
-import random
 
 class Piece:
     def __init__(self, color, name):
@@ -46,7 +45,7 @@ class Board:
         self.grid[7][4] = Piece('white', 'K')
 
     def display(self):
-        print("\n   a b c d e f g h")
+        print("   a b c d e f g h")
         print("  -----------------")
         for r in range(8):
             row_str = f"{8-r} |"
@@ -55,7 +54,7 @@ class Board:
                 row_str += (piece.symbol if piece else ".") + " "
             print(row_str + f"| {8-r}")
         print("  -----------------")
-        print("   a b c d e f g h\n")
+        print("   a b c d e f g h")
 
 class Game:
     def __init__(self):
@@ -63,69 +62,20 @@ class Game:
         self.turn = 'white'
         self.game_over = False
 
-    def parse_san(self, san_move):
-        """
-        Parses Standard Algebraic Notation (SAN) like e4, Nf3, Qxe6.
-        """
-        san_move = san_move.replace('+', '').replace('#', '')
-        if san_move == "O-O" or san_move == "O-O-O":
-            return None # Castling not implemented
-
-        # Determine piece type
-        piece_type = 'P'
-        if san_move[0].isupper():
-            piece_type = san_move[0]
-            san_move = san_move[1:]
-        
-        # Remove 'x' for captures
-        san_move = san_move.replace('x', '')
-
-        # The last two characters are the destination
-        if len(san_move) < 2:
-            return None
-        
+    def parse_move(self, move_str):
+        # Basic coordinate notation: e2e4
         try:
-            dest_col = ord(san_move[-2]) - ord('a')
-            dest_row = 8 - int(san_move[-1])
+            if len(move_str) != 4:
+                return None
+            start_col = ord(move_str[0]) - ord('a')
+            start_row = 8 - int(move_str[1])
+            end_col = ord(move_str[2]) - ord('a')
+            end_row = 8 - int(move_str[3])
+            
+            if all(0 <= x < 8 for x in [start_row, start_col, end_row, end_col]):
+                return (start_row, start_col), (end_row, end_col)
         except:
-            return None
-        
-        # Disambiguation (if any)
-        disambig_col = None
-        disambig_row = None
-        if len(san_move) > 2:
-            char = san_move[0]
-            if 'a' <= char <= 'h':
-                disambig_col = ord(char) - ord('a')
-            elif '1' <= char <= '8':
-                disambig_row = 8 - int(char)
-
-        # Find all legal moves for this piece type to the destination
-        possible_moves = []
-        for r in range(8):
-            for c in range(8):
-                piece = self.board.grid[r][c]
-                if piece and piece.color == self.turn and piece.name == piece_type:
-                    if self.is_valid_move((r, c), (dest_row, dest_col)):
-                        if disambig_col is not None and c != disambig_col:
-                            continue
-                        if disambig_row is not None and r != disambig_row:
-                            continue
-                        
-                        # Simulate move to check for check
-                        original_piece = self.board.grid[dest_row][dest_col]
-                        self.board.grid[dest_row][dest_col] = self.board.grid[r][c]
-                        self.board.grid[r][c] = None
-                        in_check = self.is_in_check(self.turn)
-                        # Undo
-                        self.board.grid[r][c] = self.board.grid[dest_row][dest_col]
-                        self.board.grid[dest_row][dest_col] = original_piece
-                        
-                        if not in_check:
-                            possible_moves.append(((r, c), (dest_row, dest_col)))
-
-        if len(possible_moves) == 1:
-            return possible_moves[0]
+            pass
         return None
 
     def is_valid_move(self, start, end):
@@ -140,6 +90,7 @@ class Game:
         if target and target.color == self.turn:
             return False
 
+        # Basic movement rules (simplified for now)
         dr = er - sr
         dc = ec - sc
 
@@ -201,6 +152,7 @@ class Game:
         king_pos = self.find_king(color)
         opponent_color = 'black' if color == 'white' else 'white'
         
+        # Temporarily switch turn to opponent to check if they can hit the king
         original_turn = self.turn
         self.turn = opponent_color
         for r in range(8):
@@ -222,6 +174,7 @@ class Game:
                     for er in range(8):
                         for ec in range(8):
                             if self.is_valid_move((r, c), (er, ec)):
+                                # Simulate move to see if it leaves king in check
                                 original_piece = self.board.grid[er][ec]
                                 self.board.grid[er][ec] = self.board.grid[r][c]
                                 self.board.grid[r][c] = None
@@ -231,23 +184,39 @@ class Game:
                                     end_str = chr(ord('a') + ec) + str(8 - er)
                                     moves.append(start_str + end_str)
                                 
+                                # Undo move
                                 self.board.grid[r][c] = self.board.grid[er][ec]
                                 self.board.grid[er][ec] = original_piece
         return moves
 
-    def make_move_san(self, san_move):
-        coords = self.parse_san(san_move)
+    def make_move(self, move_str):
+        coords = self.parse_move(move_str)
         if not coords:
-            return False, f"Invalid or ambiguous move: {san_move}"
+            return False, "Invalid format. Use e2e4."
         
         start, end = coords
+        if not self.is_valid_move(start, end):
+            return False, "Invalid move for this piece."
+
+        # Simulate move to check if it leaves king in check
         sr, sc = start
         er, ec = end
+        original_piece = self.board.grid[er][ec]
+        moving_piece = self.board.grid[sr][sc]
         
-        self.board.grid[er][ec] = self.board.grid[sr][sc]
+        self.board.grid[er][ec] = moving_piece
         self.board.grid[sr][sc] = None
+        
+        if self.is_in_check(self.turn):
+            # Undo move
+            self.board.grid[sr][sc] = moving_piece
+            self.board.grid[er][ec] = original_piece
+            return False, "Move leaves king in check."
+
+        # Move is final
         self.turn = 'black' if self.turn == 'white' else 'white'
         
+        # Check for checkmate
         if not self.get_all_valid_moves(self.turn):
             if self.is_in_check(self.turn):
                 self.game_over = True
@@ -255,75 +224,9 @@ class Game:
             else:
                 self.game_over = True
                 return True, "Stalemate!"
+                
         return True, ""
-
-    def bot_move(self):
-        moves = self.get_all_valid_moves(self.turn)
-        if not moves:
-            return None
-        
-        best_moves = []
-        max_val = -1
-        for move_str in moves:
-            sc = ord(move_str[0]) - ord('a')
-            sr = 8 - int(move_str[1])
-            ec = ord(move_str[2]) - ord('a')
-            er = 8 - int(move_str[3])
-            
-            target = self.board.grid[er][ec]
-            val = 0
-            if target:
-                vals = {'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9, 'K': 0}
-                val = vals.get(target.name, 0)
-            
-            if val > max_val:
-                max_val = val
-                best_moves = [move_str]
-            elif val == max_val:
-                best_moves.append(move_str)
-        
-        move_str = random.choice(best_moves)
-        sc = ord(move_str[0]) - ord('a')
-        sr = 8 - int(move_str[1])
-        ec = ord(move_str[2]) - ord('a')
-        er = 8 - int(move_str[3])
-        piece = self.board.grid[sr][sc]
-        
-        san = ""
-        if piece.name != 'P': san += piece.name
-        if self.board.grid[er][ec]: san += 'x'
-        san += move_str[2:]
-        
-        self.board.grid[er][ec] = self.board.grid[sr][sc]
-        self.board.grid[sr][sc] = None
-        self.turn = 'black' if self.turn == 'white' else 'white'
-        
-        return san
 
 if __name__ == "__main__":
     game = Game()
-    print("Welcome to Python Chess!")
-    print("Enter moves in SAN (e.g., e4, Nf3, Qxe6). Type 'quit' to exit.")
-    
-    while not game.game_over:
-        game.board.display()
-        if game.turn == 'white':
-            move = input("Your move (White): ").strip()
-            if move.lower() == 'quit':
-                break
-            success, msg = game.make_move_san(move)
-            if not success:
-                print(f"Error: {msg}")
-            elif msg:
-                print(msg)
-        else:
-            print("Bot is thinking...")
-            bot_san = game.bot_move()
-            if bot_san:
-                print(f"Bot moved: {bot_san}")
-            else:
-                print("Game Over!")
-                break
-    
     game.board.display()
-    print("Thanks for playing!")
